@@ -6,5 +6,5 @@ I am building my own GPT from scratch and training it on Shakespeare's work.
 - 💻 **GitHub Repo**: [karpathy/ng-video-lecture](https://github.com/karpathy/ng-video-lecture)
 
 ##  Future Goals 
-- **1**: TO build RAG on top of it. 
+- **1**: tO build RAG on top of it. 
 
