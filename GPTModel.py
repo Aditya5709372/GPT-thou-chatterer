@@ -1,12 +1,15 @@
 import torch 
 import torch.nn as nn 
 from torch.nn import functional as Fn
+from colorama import Fore
 
 torch.manual_seed(42)
-Block = 8 # lenth of one line 
-Batch = 4 # How many lines we need to process in parallel 
+block_size = 8 # lenth of one line 
+batch_size = 4 # How many lines we need to process in parallel 
 Lrate = 0.1
 device = torch.device("mps") 
+eval_iters = 200
+steps = 10000
 
 with open("Shakespeare_text.txt") as f:
     texts = f.read()
@@ -43,8 +46,8 @@ train_data = data[:n]
 test_data = data[n:]
 len(train_data)
 
-block_size = Block
-train_data[:Block+1]
+
+train_data[:block_size+1]
 
 x = train_data[:block_size]
 y = train_data[1:block_size+1]
@@ -55,16 +58,13 @@ for t in range(block_size):
 
 
 
-
-batch_size = Batch # How many independent sequence will be processed in parallel
-block_size = Block # Max size of a sequence
-
 def get_batch (split):
     data = train_data if split == 'train' else test_data
     ix = torch.randint(len(data)-block_size,(batch_size,))
     x = torch.stack([data[i:i+block_size]for i in ix] )
     y = torch.stack([data[i+1:i+block_size+1]for i in ix])
-    return x,y 
+    x,y = x.to(device) , y.to(device)
+    return x,y
 
 xb,yb = get_batch('train')
 # print("inputs")
@@ -81,6 +81,20 @@ for b in range(batch_size):
         context = xb[b,:k+1]
         target = yb[b,k]
         # print(f"for context {context}, target is {target}")
+
+@torch.no_grad()
+def extimate_loss():
+    out = {}
+    GPTmodel.eval()
+    for split in ['train_data','test_data']:
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            x,y = get_batch(split)
+            logits ,loss = GPTmodel(x,y)
+            losses[k] = loss.item()
+        out[split] = losses.mean()
+    GPTmodel.train()
+    return out 
 
 ## Model
 class BigramLanguageModel(nn.Module):
@@ -109,12 +123,13 @@ class BigramLanguageModel(nn.Module):
             logits,loss = self(idx)
             logits = logits[:,-1,:] # (B,C)
             probs = Fn.softmax(logits,dim=-1) # (B,C)
-            idx_next = torch.multinomial(probs,num_samples=1) #(B,1)
+            idx_next = torch.multinomial(probs,num_samples=1,replacement=True)#(B,1)
             idx = torch.cat((idx,idx_next), dim=1) # (B,T+1)
         return idx
     
 
 GPTmodel = BigramLanguageModel(vocab_size=vocab_size)
+GPTmodel = GPTmodel.to(device)
 logits,loss = GPTmodel(xb,yb)
 # print(logits.shape)
 # print(loss)
@@ -124,8 +139,13 @@ logits,loss = GPTmodel(xb,yb)
 
 optimiser = torch.optim.AdamW(GPTmodel.parameters(),lr=Lrate)
 
-batch_size = 32
-for steps in range(10000):
+
+for step in range(steps):
+    
+    if step % steps == 0:
+        losses = extimate_loss()
+        print(f"loss in train data: {losses['train_data']} and loss in test data: {losses['test_data']}")
+
 
     xb,yb = get_batch('train')
 
@@ -135,5 +155,5 @@ for steps in range(10000):
     optimiser.step()
 
 print(loss.item())
-
-print(decode(GPTmodel.generate(idx = torch.zeros((1,1),dtype=torch.long), max_new_token=200)[0].tolist()))
+context = torch.zeros((1,1),dtype=torch.long, device=device)
+print(Fore.GREEN + decode(GPTmodel.generate(context, max_new_token=500)[0].tolist()))
